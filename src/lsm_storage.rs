@@ -279,19 +279,31 @@ impl LsmStorageInner {
 
     /// Get a key from the storage. In day 7, this can be further optimized by using a bloom filter.
     pub fn get(&self, _key: &[u8]) -> Result<Option<Bytes>> {
-        // get read lock
+        // get read lock.
         let guard = self.state.read();
         let snapshot = &guard;
 
-        match snapshot.memtable.get(_key) {
-            Some(value) => {
+        // read from current memtable.
+        if let Some(value) = snapshot.memtable.get(_key) {
+            if value.is_empty() {
+                // tombstone.
+                return Ok(None);
+            }
+            return Ok(Some(value));
+        }
+
+        // read from earlier immutable memtables.
+        for memtable in snapshot.imm_memtables.iter() {
+            if let Some(value) = memtable.get(_key) {
                 if value.is_empty() {
+                    // tombstone.
                     return Ok(None);
                 }
                 return Ok(Some(value));
             }
-            None => return Ok(None),
         }
+
+        Ok(None)
     }
 
     /// Write a batch of data into the storage. Implement in week 2 day 7.
