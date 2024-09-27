@@ -112,9 +112,9 @@ impl MemTable {
         let mut iter = MemTableIteratorBuilder {
             map: self.map.clone(),
             iter_builder: |map| map.range((lower, upper)),
-            item: (Bytes::new(), Bytes::new())
-
-        }.build();
+            item: (Bytes::new(), Bytes::new()),
+        }
+        .build();
         let _ = iter.next();
 
         iter
@@ -161,8 +161,9 @@ pub struct MemTableIterator {
 
 impl MemTableIterator {
     fn entry_to_item(entry: Option<Entry<'_, Bytes, Bytes>>) -> (Bytes, Bytes) {
-        return entry.map(|e| (e.key().clone(), e.value().clone()))
-        .unwrap_or_else(|| (Bytes::from_static(&[]), Bytes::from_static(&[])));
+        return entry
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .unwrap_or_else(|| (Bytes::from_static(&[]), Bytes::from_static(&[])));
     }
 }
 
@@ -182,10 +183,8 @@ impl StorageIterator for MemTableIterator {
     }
 
     fn next(&mut self) -> Result<()> {
-        self.with_mut(|x| {
-           *x.item = MemTableIterator::entry_to_item(x.iter.next())
-        });
-        
+        self.with_mut(|x| *x.item = MemTableIterator::entry_to_item(x.iter.next()));
+
         Ok(())
     }
 }
