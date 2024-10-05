@@ -14,7 +14,7 @@ pub use builder::SsTableBuilder;
 use bytes::{Buf, BufMut};
 pub use iterator::SsTableIterator;
 
-use crate::block::{self, Block};
+use crate::block::Block;
 use crate::key::{KeyBytes, KeySlice};
 use crate::lsm_storage::BlockCache;
 
@@ -39,7 +39,7 @@ impl BlockMeta {
         #[allow(clippy::ptr_arg)] // remove this allow after you finish
         buf: &mut Vec<u8>,
     ) {
-        for meta in block_meta { 
+        for meta in block_meta {
             buf.put_u32(meta.offset as u32);
             buf.put_u16(meta.first_key.len() as u16);
             buf.put_slice(meta.first_key.as_key_slice().into_inner());
@@ -57,11 +57,11 @@ impl BlockMeta {
             let first_key = KeyBytes::from_bytes(buf.copy_to_bytes(first_key_len));
             let last_key_len = buf.get_u16() as usize;
             let last_key = KeyBytes::from_bytes(buf.copy_to_bytes(last_key_len));
-            
+
             block_meta.push(BlockMeta {
                 offset,
                 first_key,
-                last_key
+                last_key,
             });
         }
 
@@ -144,7 +144,7 @@ impl SsTable {
             id,
             block_cache,
             bloom: None,
-            max_ts: 0
+            max_ts: 0,
         })
     }
 
@@ -170,7 +170,14 @@ impl SsTable {
 
     /// Read a block from the disk.
     pub fn read_block(&self, block_idx: usize) -> Result<Arc<Block>> {
-        unimplemented!()
+        let offset = self.block_meta.get(block_idx).unwrap().offset as u64;
+        let next_offset = self
+            .block_meta
+            .get(block_idx + 1)
+            .map_or(self.block_meta_offset, |meta| meta.offset) as u64;
+
+        let data = self.file.read(offset, next_offset - offset)?;
+        Ok(Arc::new(Block::decode(&data)))
     }
 
     /// Read a block from disk, with block cache. (Day 4)
@@ -182,7 +189,9 @@ impl SsTable {
     /// Note: You may want to make use of the `first_key` stored in `BlockMeta`.
     /// You may also assume the key-value pairs stored in each consecutive block are sorted.
     pub fn find_block_idx(&self, key: KeySlice) -> usize {
-        unimplemented!()
+        self.block_meta
+            .partition_point(|meta| meta.first_key.as_key_slice() <= key)
+            .saturating_sub(1)
     }
 
     /// Get number of data blocks.

@@ -34,7 +34,7 @@ impl Block {
     pub fn decode(data: &[u8]) -> Self {
         // number of entries
         let num_entries = (&data[data.len() - SIZEOF_U16..]).get_u16() as usize;
-        
+
         // offest
         let offset_start = data.len() - (num_entries * SIZEOF_U16) - SIZEOF_U16;
         let offsets_raw = &data[offset_start..data.len() - SIZEOF_U16];
@@ -42,7 +42,7 @@ impl Block {
             .chunks(SIZEOF_U16)
             .map(|mut x| x.get_u16())
             .collect();
-        
+
         // data
         let data = data[..offset_start].to_vec();
 

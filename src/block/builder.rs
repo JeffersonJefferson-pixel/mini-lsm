@@ -26,14 +26,14 @@ impl BlockBuilder {
             offsets: Vec::new(),
             data: Vec::new(),
             block_size,
-            first_key: Key::new()
+            first_key: Key::new(),
         }
     }
 
-    fn size(& self) -> usize {
+    fn size(&self) -> usize {
         // offsets + data + number of entries
         self.offsets.len() * SIZEOF_U16 + self.data.len() + SIZEOF_U16
-    } 
+    }
 
     /// Adds a key-value pair to the block. Returns false when the block is full.
     #[must_use]
@@ -55,7 +55,7 @@ impl BlockBuilder {
         self.data.put_u16(value.len() as u16);
         self.data.put(value);
 
-        return true;
+        true
     }
 
     /// Check if there is no key-value pair in the block.
@@ -67,7 +67,7 @@ impl BlockBuilder {
     pub fn build(self) -> Block {
         Block {
             data: self.data,
-            offsets: self.offsets, 
+            offsets: self.offsets,
         }
     }
 }

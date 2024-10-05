@@ -65,11 +65,17 @@ impl BlockIterator {
     }
 
     fn seek_to_offset(&mut self, offset: usize) {
-        let key_len = (&self.block.data[offset..offset+SIZEOF_U16]).get_u16() as usize;
-        self.key = Key::from_slice(&self.block.data[offset + SIZEOF_U16..offset + SIZEOF_U16 + key_len]).to_key_vec(); 
+        let key_len = (&self.block.data[offset..offset + SIZEOF_U16]).get_u16() as usize;
+        self.key =
+            Key::from_slice(&self.block.data[offset + SIZEOF_U16..offset + SIZEOF_U16 + key_len])
+                .to_key_vec();
         let value_start = offset + SIZEOF_U16 + key_len;
-        let value_len = (&self.block.data[value_start..value_start + SIZEOF_U16]).get_u16() as usize;
-        self.value_range = (value_start + SIZEOF_U16, value_start + SIZEOF_U16 + value_len);
+        let value_len =
+            (&self.block.data[value_start..value_start + SIZEOF_U16]).get_u16() as usize;
+        self.value_range = (
+            value_start + SIZEOF_U16,
+            value_start + SIZEOF_U16 + value_len,
+        );
     }
 
     fn seek_to(&mut self, idx: usize) {
@@ -99,7 +105,7 @@ impl BlockIterator {
     pub fn seek_to_key(&mut self, key: KeySlice) {
         let mut low = 0;
         let mut high = self.block.offsets.len();
-        while (low < high) {
+        while low < high {
             let mid = low + (high - low) / 2;
             self.seek_to(mid);
             assert!(self.is_valid());

@@ -90,16 +90,13 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
         // move iters in heap to next if key match with current
         while let Some(mut inner_iter) = self.iters.peek_mut() {
             if inner_iter.1.key() == current_key {
-                let result = match inner_iter.1.next() {
-                    Ok(_) => {
-                        // check if still valid
-                        if !inner_iter.1.is_valid() {
-                            PeekMut::pop(inner_iter);
-                        }
-                    }
-                    Err(e) => {
+                if let Err(e) = inner_iter.1.next() {
+                    PeekMut::pop(inner_iter);
+                    return Err(e);
+                } else {
+                    // check if still valid
+                    if !inner_iter.1.is_valid() {
                         PeekMut::pop(inner_iter);
-                        return Err(e);
                     }
                 };
             } else {
