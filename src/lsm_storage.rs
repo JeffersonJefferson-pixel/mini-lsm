@@ -16,11 +16,14 @@ use crate::compact::{
     SimpleLeveledCompactionController, SimpleLeveledCompactionOptions, TieredCompactionController,
 };
 use crate::iterators::merge_iterator::MergeIterator;
+use crate::iterators::two_merge_iterator::TwoMergeIterator;
+use crate::iterators::StorageIterator;
+use crate::key::KeySlice;
 use crate::lsm_iterator::{FusedIterator, LsmIterator};
 use crate::manifest::Manifest;
 use crate::mem_table::MemTable;
 use crate::mvcc::LsmMvccInner;
-use crate::table::SsTable;
+use crate::table::{FileObject, SsTable, SsTableIterator};
 
 pub type BlockCache = moka::sync::Cache<(usize, usize), Arc<Block>>;
 
@@ -430,18 +433,43 @@ impl LsmStorageInner {
             Arc::clone(&guard)
         };
 
-        let mut iters = Vec::with_capacity(snapshot.imm_memtables.len() + 1);
-        iters.push(Box::new(snapshot.memtable.scan(_lower, _upper)));
+        // memtable
+        let mut memtable_iters = Vec::with_capacity(snapshot.imm_memtables.len() + 1);
+        memtable_iters.push(Box::new(snapshot.memtable.scan(_lower, _upper)));
         snapshot
             .imm_memtables
             .iter()
             .for_each(|memtable: &Arc<MemTable>| {
-                iters.push(Box::new(memtable.scan(_lower, _upper)))
+                memtable_iters.push(Box::new(memtable.scan(_lower, _upper)))
             });
 
-        let merge_iterator = MergeIterator::create(iters);
+        let memtable_merge_iter = MergeIterator::create(memtable_iters);
+        
+        // sst
+        let mut sst_iters = Vec::with_capacity(snapshot.l0_sstables.len());
+        snapshot.l0_sstables.iter()
+            .for_each(|sst_id| {
+                let sst = snapshot.sstables[sst_id].clone();
+                let sst_iter = match _lower {
+                    // bound
+                    Bound::Included(key) => SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(key)).unwrap(),
+                    Bound::Excluded(key) => {
+                        let mut iter = SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(key)).unwrap();
+                        if iter.is_valid() && iter.key() == KeySlice::from_slice(key) {
+                            iter.next().unwrap();
+                        }
+                        iter
+                    },
+                    Bound::Unbounded => SsTableIterator::create_and_seek_to_first(sst).unwrap(),
+                };
+                sst_iters.push(Box::new(sst_iter))
+            });
+        let sst_merge_iter = MergeIterator::create(sst_iters);
 
-        let lsm_iterator = LsmIterator::new(merge_iterator)?;
+        // two merge iter
+        let two_merge_iter = TwoMergeIterator::create(memtable_merge_iter, sst_merge_iter).unwrap();
+
+        let lsm_iterator = LsmIterator::new(two_merge_iter)?;
 
         Ok(FusedIterator::new(lsm_iterator))
     }
