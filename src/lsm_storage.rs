@@ -307,6 +307,18 @@ impl LsmStorageInner {
             }
         }
 
+        // scans on ssts.
+        let mut iters = Vec::with_capacity(snapshot.l0_sstables.len());
+        for sst_id in snapshot.l0_sstables.iter() {
+            let sst = snapshot.sstables[sst_id].clone();
+            iters.push(Box::new(SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(_key))?));
+        }
+        // create merge iterator 
+        let merge_iter = MergeIterator::create(iters);
+        if merge_iter.is_valid() && merge_iter.key() == KeySlice::from_slice(_key) && !merge_iter.value().is_empty()  {
+            return Ok(Some(Bytes::copy_from_slice(merge_iter.value())));
+        }
+
         Ok(None)
     }
 
