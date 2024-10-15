@@ -1,6 +1,7 @@
 #![allow(dead_code)] // REMOVE THIS LINE after fully implementing this functionality
 
 use std::collections::HashMap;
+use std::fs;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -23,7 +24,7 @@ use crate::lsm_iterator::{FusedIterator, LsmIterator};
 use crate::manifest::Manifest;
 use crate::mem_table::MemTable;
 use crate::mvcc::LsmMvccInner;
-use crate::table::{FileObject, SsTable, SsTableIterator};
+use crate::table::{FileObject, SsTable, SsTableBuilder, SsTableIterator};
 
 pub type BlockCache = moka::sync::Cache<(usize, usize), Arc<Block>>;
 
@@ -241,6 +242,12 @@ impl LsmStorageInner {
     /// not exist.
     pub(crate) fn open(path: impl AsRef<Path>, options: LsmStorageOptions) -> Result<Self> {
         let path = path.as_ref();
+
+        // create lsm directory if it does not exist
+        if !path.exists() {
+            fs::create_dir_all(path)?;
+        }
+
         let state = LsmStorageState::create(&options);
 
         let compaction_controller = match &options.compaction_options {
@@ -425,7 +432,32 @@ impl LsmStorageInner {
 
     /// Force flush the earliest-created immutable memtable to disk
     pub fn force_flush_next_imm_memtable(&self) -> Result<()> {
-        unimplemented!()
+        let _state_lock = self.state_lock.lock();
+
+        // select memtable to flush
+        let memtable = { 
+            let guard = self.state.read();
+            guard.imm_memtables.last().unwrap().clone()
+        };
+
+        // create sst
+        let mut builder = SsTableBuilder::new(self.options.block_size);
+        memtable.flush(&mut builder)?;
+        let id = memtable.id();
+        let sst = Arc::new(builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?);
+
+        {
+            let mut guard = self.state.write();
+            let mut snapshot = guard.as_ref().clone();
+            // remove memtable from immutable memtable list
+            snapshot.imm_memtables.pop().unwrap();
+            // add sst to l0 ssts.
+            snapshot.l0_sstables.insert(0, id);
+            snapshot.sstables.insert(id, sst);
+            *guard = Arc::new(snapshot);
+        }
+
+        Ok(())
     }
 
     pub fn new_txn(&self) -> Result<()> {
