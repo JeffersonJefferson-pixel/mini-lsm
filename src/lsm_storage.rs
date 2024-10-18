@@ -1,7 +1,7 @@
 #![allow(dead_code)] // REMOVE THIS LINE after fully implementing this functionality
 
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -159,7 +159,30 @@ impl Drop for MiniLsm {
 
 impl MiniLsm {
     pub fn close(&self) -> Result<()> {
-        unimplemented!()
+        self.inner.sync_dir()?;
+        self.flush_notifier.send(()).ok();
+        // wait for flush thread to finish.
+        let mut flush_thread = self.flush_thread.lock();
+        if let Some(flush_thread) = flush_thread.take() {
+            flush_thread
+                .join()
+                .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        }
+        // freeze and flush remaining memtables
+        if !self.inner.state.read().memtable.is_empty() {
+            self.inner
+                .force_freeze_memtable(&self.inner.state_lock.lock())?;
+        }
+        while {
+            let snapshot = self.inner.state.read();
+            !snapshot.imm_memtables.is_empty()
+        } {
+            self.inner.force_flush_next_imm_memtable()?;
+        }
+
+        self.inner.sync_dir()?;
+
+        Ok(())
     }
 
     /// Start the storage engine by either loading an existing directory or creating a new one if the directory does
@@ -318,11 +341,17 @@ impl LsmStorageInner {
         let mut iters = Vec::with_capacity(snapshot.l0_sstables.len());
         for sst_id in snapshot.l0_sstables.iter() {
             let sst = snapshot.sstables[sst_id].clone();
-            iters.push(Box::new(SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(_key))?));
+            iters.push(Box::new(SsTableIterator::create_and_seek_to_key(
+                sst,
+                KeySlice::from_slice(_key),
+            )?));
         }
-        // create merge iterator 
+        // create merge iterator
         let merge_iter = MergeIterator::create(iters);
-        if merge_iter.is_valid() && merge_iter.key() == KeySlice::from_slice(_key) && !merge_iter.value().is_empty()  {
+        if merge_iter.is_valid()
+            && merge_iter.key() == KeySlice::from_slice(_key)
+            && !merge_iter.value().is_empty()
+        {
             return Ok(Some(Bytes::copy_from_slice(merge_iter.value())));
         }
 
@@ -406,7 +435,8 @@ impl LsmStorageInner {
     }
 
     pub(super) fn sync_dir(&self) -> Result<()> {
-        unimplemented!()
+        File::open(&self.path)?.sync_all()?;
+        Ok(())
     }
 
     /// Force freeze the current memtable to an immutable memtable
@@ -435,7 +465,7 @@ impl LsmStorageInner {
         let _state_lock = self.state_lock.lock();
 
         // select memtable to flush
-        let memtable = { 
+        let memtable = {
             let guard = self.state.read();
             guard.imm_memtables.last().unwrap().clone()
         };
@@ -444,7 +474,8 @@ impl LsmStorageInner {
         let mut builder = SsTableBuilder::new(self.options.block_size);
         memtable.flush(&mut builder)?;
         let id = memtable.id();
-        let sst = Arc::new(builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?);
+        let sst =
+            Arc::new(builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?);
 
         {
             let mut guard = self.state.write();
@@ -456,6 +487,8 @@ impl LsmStorageInner {
             snapshot.sstables.insert(id, sst);
             *guard = Arc::new(snapshot);
         }
+
+        self.sync_dir()?;
 
         Ok(())
     }
@@ -488,26 +521,29 @@ impl LsmStorageInner {
             });
 
         let memtable_merge_iter = MergeIterator::create(memtable_iters);
-        
+
         // sst
         let mut sst_iters = Vec::with_capacity(snapshot.l0_sstables.len());
-        snapshot.l0_sstables.iter()
-            .for_each(|sst_id| {
-                let sst = snapshot.sstables[sst_id].clone();
-                let sst_iter = match _lower {
-                    // bound
-                    Bound::Included(key) => SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(key)).unwrap(),
-                    Bound::Excluded(key) => {
-                        let mut iter = SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(key)).unwrap();
-                        if iter.is_valid() && iter.key() == KeySlice::from_slice(key) {
-                            iter.next().unwrap();
-                        }
-                        iter
-                    },
-                    Bound::Unbounded => SsTableIterator::create_and_seek_to_first(sst).unwrap(),
-                };
-                sst_iters.push(Box::new(sst_iter))
-            });
+        snapshot.l0_sstables.iter().for_each(|sst_id| {
+            let sst = snapshot.sstables[sst_id].clone();
+            let sst_iter = match _lower {
+                // bound
+                Bound::Included(key) => {
+                    SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(key)).unwrap()
+                }
+                Bound::Excluded(key) => {
+                    let mut iter =
+                        SsTableIterator::create_and_seek_to_key(sst, KeySlice::from_slice(key))
+                            .unwrap();
+                    if iter.is_valid() && iter.key() == KeySlice::from_slice(key) {
+                        iter.next().unwrap();
+                    }
+                    iter
+                }
+                Bound::Unbounded => SsTableIterator::create_and_seek_to_first(sst).unwrap(),
+            };
+            sst_iters.push(Box::new(sst_iter))
+        });
         let sst_merge_iter = MergeIterator::create(sst_iters);
 
         // two merge iter

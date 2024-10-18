@@ -11,7 +11,7 @@ pub struct TwoMergeIterator<A: StorageIterator, B: StorageIterator> {
     a: A,
     b: B,
     // Add fields as need
-    flag: bool
+    flag: bool,
 }
 
 impl<
@@ -20,11 +20,7 @@ impl<
     > TwoMergeIterator<A, B>
 {
     pub fn create(a: A, b: B) -> Result<Self> {
-        let mut iter = Self {
-            a,
-            b,
-            flag: false
-        };
+        let mut iter = Self { a, b, flag: false };
 
         iter.skip_b()?;
         iter.flag = iter.choose_iter();
@@ -32,7 +28,6 @@ impl<
         Ok(iter)
     }
 
-    
     fn skip_b(&mut self) -> Result<()> {
         if self.a.is_valid() {
             if self.b.is_valid() && self.b.key() == self.a.key() {
@@ -45,10 +40,10 @@ impl<
 
     fn choose_iter(&mut self) -> bool {
         if !self.a.is_valid() {
-            return false
-        } 
+            return false;
+        }
         if !self.b.is_valid() {
-            return true
+            return true;
         }
         self.a.key() < self.b.key()
     }
@@ -91,7 +86,7 @@ impl<
         } else {
             self.b.next()?;
         }
-        
+
         self.skip_b()?;
         self.flag = self.choose_iter();
 

@@ -122,7 +122,7 @@ impl MemTable {
 
     /// Flush the mem-table to SSTable. Implement in week 1 day 6.
     pub fn flush(&self, _builder: &mut SsTableBuilder) -> Result<()> {
-        for entry in self.map.iter()  {
+        for entry in self.map.iter() {
             let key = entry.key();
             let value = entry.value();
             _builder.add(KeySlice::from_slice(key), value);
