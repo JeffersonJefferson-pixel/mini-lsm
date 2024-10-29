@@ -371,10 +371,22 @@ impl LsmStorageInner {
         for sst_id in snapshot.l0_sstables.iter() {
             let sst = snapshot.sstables[sst_id].clone();
             if key_within(_key, sst.first_key().raw_ref(), sst.last_key().raw_ref()) {
-                iters.push(Box::new(SsTableIterator::create_and_seek_to_key(
-                    sst,
-                    KeySlice::from_slice(_key),
-                )?));
+                // check bloom filter
+                if let Some(bloom) = &sst.bloom  {
+                    // key hash
+                    let key_hash: u32  = farmhash::fingerprint32(_key);
+                    if bloom.may_contain(key_hash) {
+                        iters.push(Box::new(SsTableIterator::create_and_seek_to_key(
+                            sst,
+                            KeySlice::from_slice(_key),
+                        )?));
+                    }
+                } else {
+                    iters.push(Box::new(SsTableIterator::create_and_seek_to_key(
+                        sst,
+                        KeySlice::from_slice(_key),
+                    )?));
+                }
             }
         }
         // create merge iterator

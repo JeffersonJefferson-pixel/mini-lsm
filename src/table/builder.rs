@@ -7,7 +7,9 @@ use std::{mem, path::Path};
 use anyhow::Result;
 use bytes::{BufMut, Bytes};
 
+use super::bloom::Bloom;
 use super::{BlockMeta, FileObject, SsTable};
+use crate::block::Block;
 use crate::key::KeyBytes;
 use crate::{block::BlockBuilder, key::KeySlice, lsm_storage::BlockCache};
 
@@ -19,6 +21,7 @@ pub struct SsTableBuilder {
     data: Vec<u8>,
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
+    key_hashes: Vec<u32>
 }
 
 impl SsTableBuilder {
@@ -31,6 +34,7 @@ impl SsTableBuilder {
             data: Vec::new(),
             meta: Vec::new(),
             block_size,
+            key_hashes: Vec::new()
         }
     }
 
@@ -43,6 +47,11 @@ impl SsTableBuilder {
             self.first_key = key.to_key_vec().into_inner();
         }
         self.last_key = key.to_key_vec().into_inner();
+        // hash key
+        let key_hash = farmhash::fingerprint32(key.raw_ref());
+        // stoer key hash
+        self.key_hashes.push(key_hash);
+
         if self.builder.add(key, value) {
             return;
         }
@@ -94,16 +103,24 @@ impl SsTableBuilder {
         let meta_offset = buf.len();
         BlockMeta::encode_block_meta(&self.meta, &mut buf);
         buf.put_u32(meta_offset as u32);
+        // build bloom filter
+        let bits_per_key = Bloom::bloom_bits_per_key(self.key_hashes.len(), 0.01);
+        let bloom =  Bloom::build_from_key_hashes(&self.key_hashes, bits_per_key);
+        // append bloom to the end of sst
+        let bloom_offset = buf.len();
+        bloom.encode(&mut buf);
+        buf.put_u32(bloom_offset as u32);
+        // cerate sst file
         let file = FileObject::create(path.as_ref(), buf)?;
 
         Ok(SsTable {
             file,
             block_meta_offset: meta_offset,
             id,
-            block_cache: None,
+            block_cache,
             first_key: self.meta.first().unwrap().first_key.clone(),
             last_key: self.meta.last().unwrap().last_key.clone(),
-            bloom: None,
+            bloom: Some(bloom),
             max_ts: 0,
             block_meta: self.meta,
         })
