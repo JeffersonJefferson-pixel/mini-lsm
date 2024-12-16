@@ -117,17 +117,14 @@ impl LsmStorageInner {
             state.clone()
         };
 
+        // create sst iterators for l0 and l1 ssts.
         let iters = match _task {
             CompactionTask::ForceFullCompaction {
                 l0_sstables,
                 l1_sstables,
             } => {
                 let mut iters = Vec::with_capacity(snapshot.l0_sstables.len());
-                for sst_id in l0_sstables.iter() {
-                    let sst = snapshot.sstables[sst_id].clone();
-                    iters.push(Box::new(SsTableIterator::create_and_seek_to_first(sst)?));
-                }
-                for sst_id in l1_sstables.iter() {
+                for sst_id in l0_sstables.iter().chain(l1_sstables) {
                     let sst = snapshot.sstables[sst_id].clone();
                     iters.push(Box::new(SsTableIterator::create_and_seek_to_first(sst)?));
                 }
@@ -141,6 +138,7 @@ impl LsmStorageInner {
         let mut builder = None;
 
         while merge_iter.is_valid() {
+            // create new sst builder.
             if builder.is_none() {
                 builder = Some(SsTableBuilder::new(self.options.block_size));
             }
@@ -151,10 +149,10 @@ impl LsmStorageInner {
                 builder_inner.add(merge_iter.key(), merge_iter.value());
             }
 
-            merge_iter.next()?;
-
+            // handle full sst.
             if builder_inner.estimated_size() >= self.options.target_sst_size {
                 let sst_id = self.next_sst_id();
+                // builder is reset.
                 let builder = builder.take().unwrap();
                 let sst = builder.build(
                     sst_id,
@@ -163,8 +161,11 @@ impl LsmStorageInner {
                 )?;
                 new_ssts.push(Arc::new(sst));
             }
+
+            merge_iter.next()?;
         }
 
+        // handle case last sst is not yet full but iterator reaches the end.
         if let Some(builder) = builder {
             let sst_id = self.next_sst_id();
             let sst = builder.build(
@@ -221,6 +222,7 @@ impl LsmStorageInner {
             *self.state.write() = Arc::new(state);
         }
 
+        // remove l0 and l1 sst files.
         for sst in l0.iter().chain(l1.iter()) {
             std::fs::remove_file(self.path_of_sst(*sst))?;
         }
