@@ -25,11 +25,10 @@ pub struct BlockIterator {
 
 impl Block {
     fn get_first_key(&self) -> Vec<u8> {
-        let rest_key_len = (&self.data[SIZEOF_U16 .. SIZEOF_U16 + SIZEOF_U16]).get_u16() as usize;
-        let rest_key = &self.data[SIZEOF_U16 + SIZEOF_U16 .. SIZEOF_U16 + SIZEOF_U16 + rest_key_len];
-        return rest_key.to_vec();
-        
-    } 
+        let rest_key_len = (&self.data[SIZEOF_U16..SIZEOF_U16 + SIZEOF_U16]).get_u16() as usize;
+        let rest_key = &self.data[SIZEOF_U16 + SIZEOF_U16..SIZEOF_U16 + SIZEOF_U16 + rest_key_len];
+        rest_key.to_vec()
+    }
 }
 
 impl BlockIterator {
@@ -76,13 +75,15 @@ impl BlockIterator {
     fn seek_to_offset(&mut self, offset: usize) {
         // key prefix decode
         let key_overlap_len = (&self.block.data[offset..offset + SIZEOF_U16]).get_u16() as usize;
-        let rest_key_len = (&self.block.data[offset+SIZEOF_U16..offset + SIZEOF_U16 + SIZEOF_U16]).get_u16() as usize;
+        let rest_key_len = (&self.block.data[offset + SIZEOF_U16..offset + SIZEOF_U16 + SIZEOF_U16])
+            .get_u16() as usize;
         let overlap_key = &self.first_key.raw_ref()[0..key_overlap_len];
-        let rest_key = &self.block.data[offset + SIZEOF_U16 + SIZEOF_U16..offset + SIZEOF_U16 + SIZEOF_U16 + rest_key_len];
+        let rest_key = &self.block.data
+            [offset + SIZEOF_U16 + SIZEOF_U16..offset + SIZEOF_U16 + SIZEOF_U16 + rest_key_len];
         self.key.clear();
         self.key.append(overlap_key);
         self.key.append(rest_key);
-        let value_start = offset + SIZEOF_U16 +SIZEOF_U16 + rest_key_len;
+        let value_start = offset + SIZEOF_U16 + SIZEOF_U16 + rest_key_len;
         let value_len =
             (&self.block.data[value_start..value_start + SIZEOF_U16]).get_u16() as usize;
         self.value_range = (

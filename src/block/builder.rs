@@ -21,16 +21,16 @@ pub struct BlockBuilder {
     first_key: KeyVec,
 }
 
-fn find_prefix(vec1: &[u8], vec2:  &[u8]) -> (usize, usize) {
+fn find_prefix(vec1: &[u8], vec2: &[u8]) -> (usize, usize) {
     let mut overlap_len: usize = 0;
-    let len = min(vec1.len(), vec2.len());  
+    let len = min(vec1.len(), vec2.len());
     for i in 0..len {
         if vec1[i] != vec2[i] {
-            return (overlap_len, vec2.len() - overlap_len);
+            break;
         }
         overlap_len += 1;
     }
-    return (overlap_len, vec2.len() - overlap_len);
+    (overlap_len, vec2.len() - overlap_len)
 }
 
 impl BlockBuilder {
@@ -60,11 +60,12 @@ impl BlockBuilder {
         if self.size() + entry_size > self.block_size && !self.is_empty() {
             return false;
         }
-        
+
         // offset
         self.offsets.push(self.data.len() as u16);
         // key prefix encoding
-        let (key_overlap_len, rest_key_len) = find_prefix(self.first_key.raw_ref(), key.into_inner());
+        let (key_overlap_len, rest_key_len) =
+            find_prefix(self.first_key.raw_ref(), key.into_inner());
         // key
         self.data.put_u16(key_overlap_len as u16);
         self.data.put_u16(rest_key_len as u16);

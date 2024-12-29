@@ -21,7 +21,7 @@ pub struct SsTableBuilder {
     data: Vec<u8>,
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
-    key_hashes: Vec<u32>
+    key_hashes: Vec<u32>,
 }
 
 impl SsTableBuilder {
@@ -34,7 +34,7 @@ impl SsTableBuilder {
             data: Vec::new(),
             meta: Vec::new(),
             block_size,
-            key_hashes: Vec::new()
+            key_hashes: Vec::new(),
         }
     }
 
@@ -105,7 +105,7 @@ impl SsTableBuilder {
         buf.put_u32(meta_offset as u32);
         // build bloom filter
         let bits_per_key = Bloom::bloom_bits_per_key(self.key_hashes.len(), 0.01);
-        let bloom =  Bloom::build_from_key_hashes(&self.key_hashes, bits_per_key);
+        let bloom = Bloom::build_from_key_hashes(&self.key_hashes, bits_per_key);
         // append bloom to the end of sst
         let bloom_offset = buf.len();
         bloom.encode(&mut buf);
