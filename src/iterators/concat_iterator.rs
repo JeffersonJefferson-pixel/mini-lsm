@@ -21,6 +21,14 @@ pub struct SstConcatIterator {
 
 impl SstConcatIterator {
     pub fn create_and_seek_to_first(sstables: Vec<Arc<SsTable>>) -> Result<Self> {
+        // handle empty ssts
+        if sstables.is_empty() {
+            return Ok(Self {
+                current: None,
+                next_sst_idx: 0,
+                sstables
+            });
+        }
         let mut iter = Self {
             current: Some(SsTableIterator::create_and_seek_to_first(sstables[0].clone()).unwrap()),
             next_sst_idx: 1,
@@ -33,6 +41,14 @@ impl SstConcatIterator {
     }
 
     pub fn create_and_seek_to_key(sstables: Vec<Arc<SsTable>>, key: KeySlice) -> Result<Self> {
+        // handle empty ssts
+        if sstables.is_empty() {
+            return Ok(Self {
+                current: None,
+                next_sst_idx: 0,
+                sstables
+            })
+        }
         let mut iter = Self {
             current: Some(SsTableIterator::create_and_seek_to_key(sstables[0].clone(), key).unwrap()),
             next_sst_idx: 1,

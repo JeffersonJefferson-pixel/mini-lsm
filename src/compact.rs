@@ -15,7 +15,9 @@ pub use simple_leveled::{
 };
 pub use tiered::{TieredCompactionController, TieredCompactionOptions, TieredCompactionTask};
 
+use crate::iterators::concat_iterator::SstConcatIterator;
 use crate::iterators::merge_iterator::MergeIterator;
+use crate::iterators::two_merge_iterator::TwoMergeIterator;
 use crate::iterators::StorageIterator;
 use crate::lsm_storage::{LsmStorageInner, LsmStorageState};
 use crate::table::{SsTable, SsTableBuilder, SsTableIterator};
@@ -118,36 +120,53 @@ impl LsmStorageInner {
         };
 
         // create sst iterators for l0 and l1 ssts.
-        let iters = match _task {
+        let mut iter = match _task {
             CompactionTask::ForceFullCompaction {
                 l0_sstables,
                 l1_sstables,
             } => {
-                let mut iters = Vec::with_capacity(snapshot.l0_sstables.len());
-                for sst_id in l0_sstables.iter().chain(l1_sstables) {
+                // l0 iter
+                let mut l0_iters = Vec::with_capacity(l0_sstables.len());  
+                for sst_id in l0_sstables.iter() {
                     let sst = snapshot.sstables[sst_id].clone();
-                    iters.push(Box::new(SsTableIterator::create_and_seek_to_first(sst)?));
+                    l0_iters.push(Box::new(SsTableIterator::create_and_seek_to_first(sst)?));
                 }
-                iters
+                let l0_iter = MergeIterator::create(l0_iters);
+                
+                // l1 iter
+                let mut l1_ssts = Vec::with_capacity(l1_sstables.len());
+                for sst_id in l1_sstables.iter() {
+                    let sst = snapshot.sstables[sst_id].clone();
+                    l1_ssts.push(sst);
+                }
+                let l1_iter = SstConcatIterator::create_and_seek_to_first(l1_ssts)?;
+
+                TwoMergeIterator::create(l0_iter, l1_iter)?
+                
             }
             _ => unimplemented!(),
         };
 
-        let mut merge_iter = MergeIterator::create(iters);
-
         let mut builder = None;
+        
+        let compact_to_bottom_level = _task.compact_to_bottom_level();
 
-        while merge_iter.is_valid() {
+        while iter.is_valid() {
             // create new sst builder.
             if builder.is_none() {
                 builder = Some(SsTableBuilder::new(self.options.block_size));
             }
             let builder_inner = builder.as_mut().unwrap();
-
-            // handle delete marker
-            if !merge_iter.value().is_empty() {
-                builder_inner.add(merge_iter.key(), merge_iter.value());
+            if compact_to_bottom_level {
+                if !iter.value().is_empty() {
+                    // handle delete marker
+                    builder_inner.add(iter.key(), iter.value());
+                }
+            } else {
+                builder_inner.add(iter.key(), iter.value());
             }
+
+            iter.next()?;
 
             // handle full sst.
             if builder_inner.estimated_size() >= self.options.target_sst_size {
@@ -161,8 +180,6 @@ impl LsmStorageInner {
                 )?;
                 new_ssts.push(Arc::new(sst));
             }
-
-            merge_iter.next()?;
         }
 
         // handle case last sst is not yet full but iterator reaches the end.
