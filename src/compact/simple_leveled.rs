@@ -35,18 +35,33 @@ impl SimpleLeveledCompactionController {
         &self,
         _snapshot: &LsmStorageState,
     ) -> Option<SimpleLeveledCompactionTask> {
-        // level 0 trigger
-        if _snapshot.l0_sstables.len() >= self.options.level0_file_num_compaction_trigger {
-            let upper_level = 0;
-            let lower_level = upper_level + 1;
-            return Some(SimpleLeveledCompactionTask{
-                upper_level: if upper_level == 0 { None  } else { Some(upper_level) },
-                upper_level_sst_ids: if upper_level == 0 { _snapshot.l0_sstables.clone() } else { _snapshot.levels[upper_level - 1].1.clone() },
-                lower_level: lower_level,
-                lower_level_sst_ids: _snapshot.levels[lower_level - 1].1.clone(),
-                is_lower_level_bottom_level: lower_level == self.options.max_levels,
-            })
+        let mut level_sizes = Vec::new();
+        level_sizes.push(_snapshot.l0_sstables.len());
+        for (_, level) in &_snapshot.levels {
+            level_sizes.push(level.len())
         }
+
+        // iterate over each sst level
+        for i in 0..self.options.max_levels {
+            let lower_level = i + 1;
+
+            // level 0 trigger    
+            if i == 0 && _snapshot.l0_sstables.len() < self.options.level0_file_num_compaction_trigger {
+                continue;
+            }   
+            // size ratio trigger
+            let ratio = level_sizes[lower_level] as f64 / level_sizes[i] as f64;
+            if ratio * 100.0 < self.options.size_ratio_percent as f64 {
+                return Some(SimpleLeveledCompactionTask{
+                    upper_level: if i == 0 { None  } else { Some(i) },
+                    upper_level_sst_ids: if i == 0 { _snapshot.l0_sstables.clone() } else { _snapshot.levels[i - 1].1.clone() },
+                    lower_level: lower_level,
+                    lower_level_sst_ids: _snapshot.levels[lower_level - 1].1.clone(),
+                    is_lower_level_bottom_level: lower_level == self.options.max_levels,
+                });   
+            }        
+        } 
+        
 
         None
     }
