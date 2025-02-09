@@ -35,7 +35,20 @@ impl SimpleLeveledCompactionController {
         &self,
         _snapshot: &LsmStorageState,
     ) -> Option<SimpleLeveledCompactionTask> {
-        unimplemented!()
+        // level 0 trigger
+        if _snapshot.l0_sstables.len() >= self.options.level0_file_num_compaction_trigger {
+            let upper_level = 0;
+            let lower_level = upper_level + 1;
+            return Some(SimpleLeveledCompactionTask{
+                upper_level: if upper_level == 0 { None  } else { Some(upper_level) },
+                upper_level_sst_ids: if upper_level == 0 { _snapshot.l0_sstables.clone() } else { _snapshot.levels[upper_level - 1].1.clone() },
+                lower_level: lower_level,
+                lower_level_sst_ids: _snapshot.levels[lower_level - 1].1.clone(),
+                is_lower_level_bottom_level: lower_level == self.options.max_levels,
+            })
+        }
+
+        None
     }
 
     /// Apply the compaction result.
@@ -51,6 +64,20 @@ impl SimpleLeveledCompactionController {
         _task: &SimpleLeveledCompactionTask,
         _output: &[usize],
     ) -> (LsmStorageState, Vec<usize>) {
-        unimplemented!()
+        let mut snapshot = _snapshot.clone();
+        let mut files_to_remove = Vec::new();
+        if let Some(upper_level) = _task.upper_level {
+            // case upper level is not level 0
+            snapshot.levels[upper_level - 1].1.clear();
+            files_to_remove.extend(&snapshot.levels[upper_level - 1].1);
+        } else {
+            // case upper level is level 0
+            snapshot.l0_sstables.clear();
+            files_to_remove.extend(&snapshot.l0_sstables)
+        }
+        files_to_remove.extend(&snapshot.levels[_task.lower_level - 1].1);
+        snapshot.levels[_task.lower_level - 1].1 = _output.to_vec();
+
+        (snapshot, files_to_remove) 
     }
 }
