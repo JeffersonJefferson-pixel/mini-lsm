@@ -83,12 +83,12 @@ impl SimpleLeveledCompactionController {
         let mut files_to_remove = Vec::new();
         if let Some(upper_level) = _task.upper_level {
             // case upper level is not level 0
-            snapshot.levels[upper_level - 1].1.clear();
             files_to_remove.extend(&snapshot.levels[upper_level - 1].1);
+            snapshot.levels[upper_level - 1].1.clear();
         } else {
             // case upper level is level 0
+            files_to_remove.extend(&snapshot.l0_sstables);
             snapshot.l0_sstables.clear();
-            files_to_remove.extend(&snapshot.l0_sstables)
         }
         files_to_remove.extend(&snapshot.levels[_task.lower_level - 1].1);
         snapshot.levels[_task.lower_level - 1].1 = _output.to_vec();
