@@ -74,7 +74,7 @@ impl SsTableIterator {
             blk_idx += 1;
             if blk_idx < table.num_of_blocks() {
                 block = table.read_block_cached(blk_idx)?;
-                blk_iter = BlockIterator::create_and_seek_to_key(block, key);
+                blk_iter = BlockIterator::create_and_seek_to_first(block);
             }
         }
 
@@ -104,10 +104,12 @@ impl StorageIterator for SsTableIterator {
     /// Note: You may want to check if the current block iterator is valid after the move.
     fn next(&mut self) -> Result<()> {
         self.blk_iter.next();
-        if !self.blk_iter.is_valid() && self.blk_idx + 1 < self.table.num_of_blocks() {
-            let block = self.table.read_block_cached(self.blk_idx + 1)?;
-            self.blk_iter = BlockIterator::create_and_seek_to_first(block);
+        if !self.blk_iter.is_valid() {
             self.blk_idx += 1;
+            if self.blk_idx < self.table.num_of_blocks() {
+                let block = self.table.read_block_cached(self.blk_idx)?;
+                self.blk_iter = BlockIterator::create_and_seek_to_first(block);
+            }
         }
 
         Ok(())

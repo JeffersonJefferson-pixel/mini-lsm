@@ -23,29 +23,27 @@ impl<
         let mut iter = Self { a, b, flag: false };
 
         iter.skip_b()?;
-        iter.flag = iter.choose_iter();
+        iter.flag = Self::choose_a(&iter.a, &iter.b);
 
         Ok(iter)
     }
 
     fn skip_b(&mut self) -> Result<()> {
-        if self.a.is_valid() {
-            if self.b.is_valid() && self.b.key() == self.a.key() {
-                self.b.next()?
-            }
+        if self.a.is_valid() && self.b.is_valid() && self.b.key() == self.a.key() {
+            self.b.next()?;
         }
 
         Ok(())
     }
 
-    fn choose_iter(&mut self) -> bool {
-        if !self.a.is_valid() {
+    fn choose_a(a: &A, b: &B) -> bool {
+        if !a.is_valid() {
             return false;
         }
-        if !self.b.is_valid() {
+        if !b.is_valid() {
             return true;
         }
-        self.a.key() < self.b.key()
+        a.key() < b.key()
     }
 }
 
@@ -88,7 +86,7 @@ impl<
         }
 
         self.skip_b()?;
-        self.flag = self.choose_iter();
+        self.flag = Self::choose_a(&self.a, &self.b);
 
         Ok(())
     }

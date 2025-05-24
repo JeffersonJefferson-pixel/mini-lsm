@@ -25,9 +25,11 @@ pub struct BlockIterator {
 
 impl Block {
     fn get_first_key(&self) -> Vec<u8> {
-        let rest_key_len = (&self.data[SIZEOF_U16..SIZEOF_U16 + SIZEOF_U16]).get_u16() as usize;
-        let rest_key = &self.data[SIZEOF_U16 + SIZEOF_U16..SIZEOF_U16 + SIZEOF_U16 + rest_key_len];
-        rest_key.to_vec()
+        let mut buf = &self.data[..];
+        buf.get_u16();
+        let key_len = buf.get_u16();
+        let key = &buf[..key_len as usize];
+        key.to_vec()
     }
 }
 
@@ -58,11 +60,13 @@ impl BlockIterator {
 
     /// Returns the key of the current entry.
     pub fn key(&self) -> KeySlice {
+        debug_assert!(!self.key.is_empty(), "invalid iterator");
         self.key.as_key_slice()
     }
 
     /// Returns the value of the current entry.
     pub fn value(&self) -> &[u8] {
+        debug_assert!(!self.key.is_empty(), "invalid iterator");
         &self.block.data[self.value_range.0..self.value_range.1]
     }
 
@@ -74,22 +78,22 @@ impl BlockIterator {
 
     fn seek_to_offset(&mut self, offset: usize) {
         // key prefix decode
-        let key_overlap_len = (&self.block.data[offset..offset + SIZEOF_U16]).get_u16() as usize;
-        let rest_key_len = (&self.block.data[offset + SIZEOF_U16..offset + SIZEOF_U16 + SIZEOF_U16])
-            .get_u16() as usize;
-        let overlap_key = &self.first_key.raw_ref()[0..key_overlap_len];
-        let rest_key = &self.block.data
-            [offset + SIZEOF_U16 + SIZEOF_U16..offset + SIZEOF_U16 + SIZEOF_U16 + rest_key_len];
+        let mut entry = &self.block.data[offset..];
+        let key_overlap_len = entry.get_u16() as usize;
+        let rest_key_len = entry.get_u16() as usize;
+        let rest_key = &entry[..rest_key_len];
         self.key.clear();
-        self.key.append(overlap_key);
-        self.key.append(rest_key);
+        self.key
+            .append(&self.first_key.raw_ref()[..key_overlap_len]);
+        self.key.append(&rest_key);
+        entry.advance(rest_key_len);
+        let value_len = entry.get_u16() as usize;
         let value_start = offset + SIZEOF_U16 + SIZEOF_U16 + rest_key_len;
-        let value_len =
-            (&self.block.data[value_start..value_start + SIZEOF_U16]).get_u16() as usize;
         self.value_range = (
             value_start + SIZEOF_U16,
             value_start + SIZEOF_U16 + value_len,
         );
+        entry.advance(value_len);
     }
 
     fn seek_to(&mut self, idx: usize) {
@@ -110,7 +114,8 @@ impl BlockIterator {
 
     /// Move to the next key in the block.
     pub fn next(&mut self) {
-        self.seek_to(self.idx + 1);
+        self.idx += 1;
+        self.seek_to(self.idx);
     }
 
     /// Seek to the first key that >= `key`.
@@ -120,7 +125,7 @@ impl BlockIterator {
         let mut low = 0;
         let mut high = self.block.offsets.len();
         while low < high {
-            let mid = low + (high - low) / 2;
+            let mid: usize = low + (high - low) / 2;
             self.seek_to(mid);
             assert!(self.is_valid());
             match self.key().cmp(&key) {

@@ -10,7 +10,7 @@ use bytes::{BufMut, Bytes};
 use super::bloom::Bloom;
 use super::{BlockMeta, FileObject, SsTable};
 use crate::block::Block;
-use crate::key::KeyBytes;
+use crate::key::{KeyBytes, KeyVec};
 use crate::{block::BlockBuilder, key::KeySlice, lsm_storage::BlockCache};
 
 /// Builds an SSTable from key-value pairs.
@@ -44,15 +44,17 @@ impl SsTableBuilder {
     /// be helpful here)
     pub fn add(&mut self, key: KeySlice, value: &[u8]) {
         if self.first_key.is_empty() {
-            self.first_key = key.to_key_vec().into_inner();
+            self.first_key.clear();
+            self.first_key.extend(key.raw_ref());
         }
-        self.last_key = key.to_key_vec().into_inner();
         // hash key
         let key_hash = farmhash::fingerprint32(key.raw_ref());
         // stoer key hash
         self.key_hashes.push(key_hash);
 
         if self.builder.add(key, value) {
+            self.last_key.clear();
+            self.last_key.extend(key.raw_ref());
             return;
         }
 
@@ -61,25 +63,26 @@ impl SsTableBuilder {
         // add again
         assert!(self.builder.add(key, value));
         // clear key
-        self.first_key = key.to_key_vec().into_inner();
-        self.last_key = key.to_key_vec().into_inner();
+        self.first_key.clear();
+        self.first_key.extend(key.raw_ref());
+        self.last_key.clear();
+        self.last_key.extend(key.raw_ref());
     }
 
     fn finish_block(&mut self) {
+        // split a new block
+        let new_builder = BlockBuilder::new(self.block_size);
+        let old_builder = std::mem::replace(&mut self.builder, new_builder);
+        // data
+        let block = old_builder.build().encode();
         // add block meta
         let meta = BlockMeta {
             offset: self.data.len(),
-            first_key: KeyBytes::from_bytes(Bytes::copy_from_slice(&self.first_key)),
-            last_key: KeyBytes::from_bytes(Bytes::copy_from_slice(&self.last_key)),
+            first_key: KeyVec::from_vec(std::mem::take(&mut self.first_key).into())
+                .into_key_bytes(),
+            last_key: KeyVec::from_vec(std::mem::take(&mut self.last_key).into()).into_key_bytes(),
         };
         self.meta.push(meta);
-
-        // split a new block
-        let new_builder = BlockBuilder::new(self.block_size);
-        let old_builder = mem::replace(&mut self.builder, new_builder);
-
-        // data
-        let block = old_builder.build().encode();
         self.data.extend(block);
     }
 

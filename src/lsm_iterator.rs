@@ -8,7 +8,8 @@ use bytes::Bytes;
 
 use crate::{
     iterators::{
-        concat_iterator::SstConcatIterator, merge_iterator::MergeIterator, two_merge_iterator::TwoMergeIterator, StorageIterator
+        concat_iterator::SstConcatIterator, merge_iterator::MergeIterator,
+        two_merge_iterator::TwoMergeIterator, StorageIterator,
     },
     key::Key,
     mem_table::MemTableIterator,
@@ -17,9 +18,9 @@ use crate::{
 
 /// Represents the internal type for an LSM iterator. This type will be changed across the tutorial for multiple times.
 type LsmIteratorInner = TwoMergeIterator<
-        TwoMergeIterator<MergeIterator<MemTableIterator>, MergeIterator<SsTableIterator>>,
-        MergeIterator<SstConcatIterator>
-    >;
+    TwoMergeIterator<MergeIterator<MemTableIterator>, MergeIterator<SsTableIterator>>,
+    MergeIterator<SstConcatIterator>,
+>;
 
 pub struct LsmIterator {
     inner: LsmIteratorInner,
@@ -111,7 +112,10 @@ impl<I: StorageIterator> FusedIterator<I> {
 }
 
 impl<I: StorageIterator> StorageIterator for FusedIterator<I> {
-    type KeyType<'a> = I::KeyType<'a> where Self: 'a;
+    type KeyType<'a>
+        = I::KeyType<'a>
+    where
+        Self: 'a;
 
     fn is_valid(&self) -> bool {
         !self.has_errored && self.iter.is_valid()

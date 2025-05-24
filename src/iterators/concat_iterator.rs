@@ -27,13 +27,15 @@ impl SstConcatIterator {
             return Ok(Self {
                 current: None,
                 next_sst_idx: 0,
-                sstables
+                sstables,
             });
         }
         let mut iter = Self {
-            current: Some(SsTableIterator::create_and_seek_to_first(sstables[0].clone())?),
+            current: Some(SsTableIterator::create_and_seek_to_first(
+                sstables[0].clone(),
+            )?),
             next_sst_idx: 1,
-            sstables
+            sstables,
         };
 
         iter.move_until_valid()?;
@@ -51,20 +53,23 @@ impl SstConcatIterator {
             // key not found
             return Ok(Self {
                 current: None,
-                next_sst_idx: 0,
-                sstables
+                next_sst_idx: sstables.len(),
+                sstables,
             });
         }
         let mut iter = Self {
-            current: Some(SsTableIterator::create_and_seek_to_key(sstables[idx].clone(), key)?),
+            current: Some(SsTableIterator::create_and_seek_to_key(
+                sstables[idx].clone(),
+                key,
+            )?),
             next_sst_idx: idx + 1,
-            sstables
+            sstables,
         };
 
         iter.move_until_valid()?;
 
         Ok(iter)
-    } 
+    }
 
     fn check_sst_valid(ssts: &[Arc<SsTable>]) {
         // check key sort
@@ -84,17 +89,15 @@ impl SstConcatIterator {
                 if current.is_valid() {
                     break;
                 }
-                if !current.is_valid() {
-                    if self.next_sst_idx < self.sstables.len() {
-                        // move to next sst
-                        let sst = self.sstables[self.next_sst_idx].clone();
-                        let iter = SsTableIterator::create_and_seek_to_first(sst)?;
-                        self.current = Some(iter);
-                        self.next_sst_idx += 1;
-                    } else {
-                        // no more sst
-                        self.current = None
-                    }
+                if self.next_sst_idx < self.sstables.len() {
+                    // move to next sst
+                    let sst = self.sstables[self.next_sst_idx].clone();
+                    let iter = SsTableIterator::create_and_seek_to_first(sst)?;
+                    self.current = Some(iter);
+                    self.next_sst_idx += 1;
+                } else {
+                    // no more sst
+                    self.current = None
                 }
             } else {
                 break;
@@ -120,7 +123,8 @@ impl StorageIterator for SstConcatIterator {
 
     fn is_valid(&self) -> bool {
         if let Some(current) = &self.current {
-            self.current.as_ref().unwrap().is_valid()
+            assert!(current.is_valid());
+            true
         } else {
             // if no current, invalid
             false

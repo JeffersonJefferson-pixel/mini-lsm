@@ -47,13 +47,30 @@ pub struct MergeIterator<I: StorageIterator> {
 
 impl<I: StorageIterator> MergeIterator<I> {
     pub fn create(iters: Vec<Box<I>>) -> Self {
+        // handle empty iters
+        if iters.is_empty() {
+            return Self {
+                iters: BinaryHeap::new(),
+                current: None,
+            };
+        };
+
         let mut heap = BinaryHeap::new();
 
-        iters
-            .into_iter()
-            .filter(|iter| iter.is_valid())
-            .enumerate()
-            .for_each(|(i, iter)| heap.push(HeapWrapper(i, iter)));
+        // all invalid
+        if iters.iter().all(|x| !x.is_valid()) {
+            let mut iters = iters;
+            return Self {
+                iters: heap,
+                current: Some(HeapWrapper(0, iters.pop().unwrap())),
+            };
+        }
+
+        for (idx, iter) in iters.into_iter().enumerate() {
+            if iter.is_valid() {
+                heap.push(HeapWrapper(idx, iter));
+            }
+        }
 
         let current = heap.pop();
 
@@ -94,12 +111,11 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
                 if let Err(e) = inner_iter.1.next() {
                     PeekMut::pop(inner_iter);
                     return Err(e);
-                } else {
-                    // check if still valid
-                    if !inner_iter.1.is_valid() {
-                        PeekMut::pop(inner_iter);
-                    }
-                };
+                }
+                // check if still valid
+                if !inner_iter.1.is_valid() {
+                    PeekMut::pop(inner_iter);
+                }
             } else {
                 break;
             }
